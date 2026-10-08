@@ -1,6 +1,6 @@
 # Enhancement 001: Tägliche Zusammenfassung in einen Teams-Kanal pushen
 
-Status: offen · Angelegt: 2026-10-08
+Status: offen · Angelegt: 2026-10-08 · Issue: https://github.com/hanswurst1805/cp-knowledge-base/issues/1
 
 ## Ziel
 

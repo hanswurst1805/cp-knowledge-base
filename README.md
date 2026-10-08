@@ -90,4 +90,4 @@ python3 checkmates.py dienst                 # Dauerbetrieb (Container)
 
 ## Enhancements
 
-- [001 Teams-Push der Tageszusammenfassung](docs/enhancements/001-teams-push.md)
+- [001 Teams-Push der Tageszusammenfassung](docs/enhancements/001-teams-push.md) - Issue [#1](https://github.com/hanswurst1805/cp-knowledge-base/issues/1)
