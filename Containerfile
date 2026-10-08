@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
     CMK_UHRZEIT=07:00
 
 WORKDIR /app
-COPY checkmates.py digest.py config.toml ./
+COPY checkmates.py digest.py teams.py config.toml ./
 
 # Laeuft als unprivilegierter Nutzer; UID/GID beim Start per --user / compose anpassbar
 RUN useradd --uid 1000 --create-home cmk && mkdir -p /daten /web && chown cmk:cmk /daten /web

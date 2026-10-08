@@ -7,6 +7,7 @@
     python3 checkmates.py nachholen JJJJ-MM-TT   ab Datum abholen, fehlende Tage zusammenfassen
     python3 checkmates.py perioden      Wochen-/Monatszusammenfassungen aktualisieren
     python3 checkmates.py digest        HTML-Seiten aus allen Zusammenfassungen neu bauen
+    python3 checkmates.py teams SCHLUESSEL [--trocken]   Zusammenfassung an Teams (2026-10-07, woche-2026-W40, monat-2026-09)
     python3 checkmates.py bereiche      alle Bereich-IDs auflisten
     python3 checkmates.py dienst        Dauerbetrieb: taeglich um CMK_UHRZEIT `lauf` (Container)
 
@@ -33,6 +34,7 @@ import urllib.request
 from pathlib import Path
 
 import digest
+import teams
 
 BASIS = Path(__file__).resolve().parent
 API = "https://community.checkpoint.com/api/2.0/search"
@@ -65,6 +67,9 @@ def config():
     cfg["llm_key"] = e.get("LLM_API_KEY") or e.get("OPENROUTER_API_KEY") or e.get("OPENAI_API_KEY")
     cfg["web_ordner"] = e.get("CMK_WEB_DIR", cfg.get("web_ordner", ""))
     cfg["uhrzeit"] = e.get("CMK_UHRZEIT", cfg.get("uhrzeit", "07:00"))
+    cfg["teams_url"] = e.get("TEAMS_WEBHOOK_URL", "")
+    cfg["teams_perioden"] = e.get("TEAMS_PERIODEN", "0") == "1"
+    cfg["public_url"] = e.get("CMK_PUBLIC_URL", "").rstrip("/")
     daten = Path(e.get("CMK_DATEN_DIR") or cfg.get("daten_ordner") or BASIS)
     cfg["pfade"] = {"db": daten / "data" / "checkmates.db", "cache": daten / "data",
                     "zusammenfassungen": daten / "zusammenfassungen", "digest": daten / "digest"}
@@ -103,6 +108,7 @@ def db():
             kudos INTEGER, antworten INTEGER, geloest INTEGER, abgeholt TEXT);
         CREATE INDEX IF NOT EXISTS ix_zeit ON beitraege(zeit);
         CREATE TABLE IF NOT EXISTS stand (bereich TEXT PRIMARY KEY, bis TEXT);
+        CREATE TABLE IF NOT EXISTS gepusht (schluessel TEXT PRIMARY KEY, zeit TEXT);
     """)
     return con
 
@@ -365,11 +371,60 @@ def dienst():
             print(f"Lauf fehlgeschlagen: {fehler!r}", flush=True)
 
 
+def teams_push(schluessel, erzwingen=False, trocken=False):
+    """Zusammenfassung (Tag, woche-..., monat-...) an Teams; pro Schlüssel nur einmal."""
+    cfg = config()
+    con = db()
+    if not erzwingen and con.execute("SELECT 1 FROM gepusht WHERE schluessel=?", (schluessel,)).fetchone():
+        print(f"Teams: {schluessel} wurde schon geschickt.")
+        return
+    datei = cfg["pfade"]["zusammenfassungen"] / f"{schluessel}.md"
+    if not datei.exists():
+        raise RuntimeError(f"Keine Zusammenfassung {datei.name}")
+    md = datei.read_text(encoding="utf-8")
+    titel = (digest.schoenes_datum(schluessel) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", schluessel)
+             else digest.titel_aus(md, schluessel))
+    seite = f"{cfg['public_url']}/{schluessel}.html" if cfg["public_url"] else None
+    nachricht = teams.karte(md, titel, seite)
+    if trocken:
+        print(json.dumps(nachricht, ensure_ascii=False, indent=2))
+        print(f"Größe: {len(json.dumps(nachricht).encode())} Bytes")
+        return
+    if not cfg["teams_url"]:
+        raise RuntimeError("TEAMS_WEBHOOK_URL fehlt (in .env oder Umgebung)")
+    status = teams.senden(cfg["teams_url"], nachricht)
+    con.execute("INSERT OR REPLACE INTO gepusht VALUES (?, ?)",
+                (schluessel, dt.datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    print(f"Teams: {schluessel} geschickt (HTTP {status})")
+
+
+def teams_nach_lauf(tagesdatei):
+    """Nach dem täglichen Lauf: den neuen Tag, montags die Vorwoche, am 1. den Vormonat."""
+    cfg = config()
+    if not cfg["teams_url"]:
+        return
+    gestern = dt.date.today() - dt.timedelta(days=1)
+    schluessel = [tagesdatei.stem] if tagesdatei else []
+    if cfg["teams_perioden"]:
+        if gestern.weekday() == 6:
+            jahr, kw, _ = gestern.isocalendar()
+            schluessel.append(f"woche-{jahr}-W{kw:02d}")
+        if dt.date.today().day == 1:
+            schluessel.append(f"monat-{gestern:%Y-%m}")
+    for s in schluessel:
+        try:
+            teams_push(s)
+        except Exception as fehler:  # Push-Fehler darf den Lauf nicht abbrechen
+            print(f"Teams: {s} fehlgeschlagen: {fehler!r}")
+
+
 def lauf():
     abholen()
-    zusammenfassen(mit_digest=False)
+    tagesdatei = zusammenfassen(mit_digest=False)
     perioden()
     digest_bauen(config())
+    teams_nach_lauf(tagesdatei)
 
 
 def bereichsliste():
@@ -399,6 +454,10 @@ def main():
         nachholen(sys.argv[2])
     elif befehl == "digest":
         digest_bauen(config())
+    elif befehl == "teams":
+        if len(sys.argv) < 3:
+            sys.exit("python3 checkmates.py teams JJJJ-MM-TT|woche-JJJJ-Wnn|monat-JJJJ-MM [--trocken]")
+        teams_push(sys.argv[2], erzwingen=True, trocken="--trocken" in sys.argv)
     elif befehl == "bereiche":
         for b in sorted(bereichsliste(), key=lambda b: b["title"].lower()):
             print(f"{b['id']:36} {b['title']}")

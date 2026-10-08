@@ -65,16 +65,21 @@ Vorgaben stehen in `config.toml`, alles Umgebungsspezifische in `.env`
 | `WEB_USERS` | Logins `name:passwort,name2:passwort2` |
 | `CMK_UID` / `CMK_GID` | Nutzer, unter dem der App-Container läuft |
 | `CMK_WEB_PORT` | Port der Webseite auf dem Host |
+| `TEAMS_WEBHOOK_URL` | Teams-Workflows-Webhook; leer = kein Push |
+| `TEAMS_PERIODEN` | `1` = montags Vorwoche, am 1. Vormonat zusätzlich schicken |
+| `CMK_PUBLIC_URL` | Basis-URL des Digests für den Button in der Teams-Karte |
 
 ## Befehle
 
 ```bash
-python3 checkmates.py lauf                   # abholen, Tag + Woche + Monat, Digest
+python3 checkmates.py lauf                   # abholen, Tag + Woche + Monat, Digest, Teams
 python3 checkmates.py abholen                # nur abholen
 python3 checkmates.py zusammenfassen 2026-10-08   # Vortag: 07.10. 00:00 bis 08.10. 00:00
 python3 checkmates.py nachholen 2026-09-01   # ab Datum abholen, fehlende Tage zusammenfassen
 python3 checkmates.py perioden               # Wochen-/Monatszusammenfassungen aktualisieren
 python3 checkmates.py digest                 # HTML neu bauen
+python3 checkmates.py teams 2026-10-07       # an Teams schicken (auch woche-2026-W40, monat-2026-09)
+python3 checkmates.py teams 2026-10-07 --trocken   # nur Karte anzeigen
 python3 checkmates.py bereiche               # alle Bereich-IDs
 python3 checkmates.py dienst                 # Dauerbetrieb (Container)
 ```
@@ -87,6 +92,16 @@ python3 checkmates.py dienst                 # Dauerbetrieb (Container)
 | `zusammenfassungen/JJJJ-MM-TT.md` | Tageszusammenfassung |
 | `zusammenfassungen/woche-JJJJ-Wnn.md`, `monat-JJJJ-MM.md` | Wochen- und Monatszusammenfassung |
 | `digest/` | HTML-Seiten, `md/` mit den Markdown-Downloads |
+
+## Teams
+
+Ist `TEAMS_WEBHOOK_URL` gesetzt, schickt der tägliche Lauf die neue
+Tageszusammenfassung als Karte in den Kanal: „Das Wichtigste“, die Bereiche und
+ein Button auf die Tagesseite. Jeder Tag geht nur einmal raus (gemerkt in der
+Datenbank); ein Fehler beim Senden bricht den Lauf nicht ab.
+
+Webhook anlegen: im Teams-Kanal „Workflows“ → Vorlage „Post to a channel when a
+webhook request is received“ → URL kopieren.
 
 ## Enhancements
 
