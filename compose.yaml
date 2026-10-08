@@ -2,11 +2,18 @@
 # Alle Einstellungen in .env (Vorlage: .env.example)
 name: cp-knowledge-base
 
+# podman-compose: ohne gemeinsamen Pod, sonst geht userns_mode keep-id nicht
+x-podman:
+  in_pod: false
+
 services:
   app:
     build: .
     image: localhost/cp-knowledge-base:latest
     restart: unless-stopped
+    # rootless Podman: keep-id bildet CMK_UID/CMK_GID 1:1 auf den Host-Nutzer ab,
+    # damit die Volumes dem Host-Nutzer gehoeren
+    userns_mode: keep-id
     user: "${CMK_UID:-1000}:${CMK_GID:-1000}"
     env_file: .env
     environment:
