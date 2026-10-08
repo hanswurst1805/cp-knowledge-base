@@ -1,0 +1,14 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /web
+	basic_auth {
+		import /tmp/users.caddy
+	}
+	file_server
+	@md path *.md
+	header @md Content-Type "text/markdown; charset=utf-8"
+}

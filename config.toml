@@ -1,0 +1,25 @@
+# Welche CheckMates-Bereiche taeglich abgeholt werden.
+# Alle verfuegbaren IDs: python3 checkmates.py bereiche
+bereiche = [
+  "appliances-and-gaia",    # Firewall & Security Management
+  "maestro",                # Hyperscale Firewall (Maestro)
+  "sase",                   # SASE and Remote Access
+  "products-blog",          # Product Announcements
+  "ai-agents",              # AI Agents Security
+  "general-ai-discussion",  # General AI Discussion
+  "workforce-ai",           # Workforce AI Security
+]
+
+# Beim allerersten Abruf so viele Tage zurueckgehen
+erster_lauf_tage = 3
+
+# OpenRouter-Modell fuer die Zusammenfassung
+modell = "anthropic/claude-sonnet-4"
+
+# Pro Beitrag maximal so viele Zeichen Text an die Zusammenfassung geben
+max_zeichen_pro_beitrag = 1500
+
+# Fertige HTML-Seiten zusätzlich hierhin kopieren (z. B. Webroot von nginx).
+# Besser per Umgebung: CMK_WEB_DIR.
+# Wird übersprungen, solange der Ordner nicht existiert.
+web_ordner = ""

@@ -1,0 +1,30 @@
+# Start:  podman compose up -d --build     (oder: podman-compose up -d --build)
+# Alle Einstellungen in .env (Vorlage: .env.example)
+name: cp-knowledge-base
+
+services:
+  app:
+    build: .
+    image: localhost/cp-knowledge-base:latest
+    restart: unless-stopped
+    user: "${CMK_UID:-1000}:${CMK_GID:-1000}"
+    env_file: .env
+    environment:
+      CMK_DATEN_DIR: /daten
+      CMK_WEB_DIR: /web
+    volumes:
+      - ${CMK_DATEN_PFAD:-./volumes/daten}:/daten:Z
+      - ${CMK_WEB_PFAD:-./volumes/web}:/web:z
+
+  web:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/caddy/web-start.sh"]
+    environment:
+      WEB_USERS: ${WEB_USERS:-}
+    ports:
+      - "${CMK_WEB_PORT:-8080}:8080"
+    volumes:
+      - ./container/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - ./container/web-start.sh:/etc/caddy/web-start.sh:ro,Z
+      - ${CMK_WEB_PFAD:-./volumes/web}:/web:ro,z

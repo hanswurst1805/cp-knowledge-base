@@ -1,0 +1,8 @@
+.env
+data/
+logs/
+volumes/
+zusammenfassungen/
+digest/
+__pycache__/
+.DS_Store
