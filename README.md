@@ -21,7 +21,7 @@ Zwei Container:
 
 | Container | Aufgabe |
 | --- | --- |
-| `app` | läuft dauerhaft, startet täglich um `CMK_UHRZEIT` den Lauf |
+| `app` | läuft dauerhaft: täglich um `CMK_UHRZEIT` der Lauf, um `CMK_ZWISCHENSTAND` der Zwischenstand |
 | `web` | Caddy, liefert den Digest mit Login (`WEB_USERS`) auf `CMK_WEB_PORT` aus |
 
 Erster Abruf und Nachholen im laufenden Container:
@@ -43,7 +43,13 @@ Täglich per cron, z. B. 07:00:
 
 ```
 0 7 * * * cd /pfad/zu/cp-knowledge-base && /usr/bin/python3 checkmates.py lauf >> logs/lauf.log 2>&1
+0 12,18 * * * cd /pfad/zu/cp-knowledge-base && /usr/bin/python3 checkmates.py zwischenstand >> logs/lauf.log 2>&1
 ```
+
+Der Zwischenstand fasst den laufenden Tag bis zur aktuellen Uhrzeit zusammen und
+erscheint als „Zwischenstand bis 12:00 Uhr“. Am nächsten Morgen ersetzt der Lauf
+ihn durch die endgültige Fassung. Wochen, Monate und Teams sehen nur endgültige
+Tage.
 
 Ausliefern über ein vorhandenes nginx: `sudo deploy/einrichten.sh` (Pfade per
 Umgebung anpassbar, siehe Kopf des Skripts), danach `CMK_WEB_DIR` in `.env`.
@@ -60,6 +66,7 @@ Vorgaben stehen in `config.toml`, alles Umgebungsspezifische in `.env`
 | `LLM_MODELL` | Modell, Standard `anthropic/claude-sonnet-4` |
 | `CMK_BEREICHE` | Bereich-IDs, kommagetrennt; leer = `config.toml` |
 | `CMK_UHRZEIT` | Uhrzeit des täglichen Laufs im Container |
+| `CMK_ZWISCHENSTAND` | Uhrzeiten für den Zwischenstand des laufenden Tages, Standard `12:00,18:00` |
 | `CMK_DATEN_DIR` / `CMK_WEB_DIR` | Datenordner und Webroot (ohne Container) |
 | `CMK_DATEN_PFAD` / `CMK_WEB_PFAD` | Host-Ordner für die Volumes (Container) |
 | `WEB_USERS` | Logins `name:passwort,name2:passwort2` |
@@ -76,6 +83,7 @@ python3 checkmates.py lauf                   # abholen, Tag + Woche + Monat, Dig
 python3 checkmates.py abholen                # nur abholen
 python3 checkmates.py zusammenfassen 2026-10-08   # Vortag: 07.10. 00:00 bis 08.10. 00:00
 python3 checkmates.py nachholen 2026-09-01   # ab Datum abholen, fehlende Tage zusammenfassen
+python3 checkmates.py zwischenstand          # laufenden Tag bis jetzt zusammenfassen
 python3 checkmates.py perioden               # Wochen-/Monatszusammenfassungen aktualisieren
 python3 checkmates.py digest                 # HTML neu bauen
 python3 checkmates.py teams 2026-10-07       # an Teams schicken (auch woche-2026-W40, monat-2026-09)

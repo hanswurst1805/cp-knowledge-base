@@ -9,6 +9,7 @@
     python3 checkmates.py digest        HTML-Seiten aus allen Zusammenfassungen neu bauen
     python3 checkmates.py teams SCHLUESSEL [--trocken]   Zusammenfassung an Teams (2026-10-07, woche-2026-W40, monat-2026-09)
     python3 checkmates.py bereiche      alle Bereich-IDs auflisten
+    python3 checkmates.py zwischenstand   laufenden Tag bis jetzt zusammenfassen
     python3 checkmates.py dienst        Dauerbetrieb: taeglich um CMK_UHRZEIT `lauf` (Container)
 
 Quelle ist die oeffentliche Khoros-API von community.checkpoint.com (LiQL).
@@ -67,6 +68,7 @@ def config():
     cfg["llm_key"] = e.get("LLM_API_KEY") or e.get("OPENROUTER_API_KEY") or e.get("OPENAI_API_KEY")
     cfg["web_ordner"] = e.get("CMK_WEB_DIR", cfg.get("web_ordner", ""))
     cfg["uhrzeit"] = e.get("CMK_UHRZEIT", cfg.get("uhrzeit", "07:00"))
+    cfg["zwischenstand"] = [u.strip() for u in e.get("CMK_ZWISCHENSTAND", "12:00,18:00").split(",") if u.strip()]
     cfg["teams_url"] = e.get("TEAMS_WEBHOOK_URL", "")
     cfg["teams_perioden"] = e.get("TEAMS_PERIODEN", "0") == "1"
     cfg["public_url"] = e.get("CMK_PUBLIC_URL", "").rstrip("/")
@@ -197,19 +199,35 @@ Beiträge:
 {beitraege}"""
 
 
-def zusammenfassen(tag=None, mit_digest=True, erzwingen=False):
+ZWISCHENSTAND = "<!-- zwischenstand -->"
+
+
+def ist_zwischenstand(datei):
+    return datei.exists() and ZWISCHENSTAND in datei.read_text(encoding="utf-8")
+
+
+def zusammenfassen(tag=None, mit_digest=True, erzwingen=False, zwischenstand=False):
+    """Fasst den Vortag von `tag` zusammen (Standard: gestern).
+
+    zwischenstand=True: den laufenden Tag von 00:00 bis jetzt; die Datei wird
+    am nächsten Morgen durch die endgültige Fassung ersetzt.
+    """
     cfg = config()
     con = db()
-    tag = tag or dt.date.today().isoformat()
-    ende = dt.datetime.fromisoformat(tag).astimezone()
-    start = ende - dt.timedelta(days=1)
+    if zwischenstand:
+        ende = dt.datetime.now().astimezone().replace(second=0, microsecond=0)
+        start = ende.replace(hour=0, minute=0)
+    else:
+        tag = tag or dt.date.today().isoformat()
+        ende = dt.datetime.fromisoformat(tag).astimezone()
+        start = ende - dt.timedelta(days=1)
     zeilen = [r for r in con.execute("SELECT * FROM beitraege ORDER BY bereich, thema_id, zeit")
               if start <= dt.datetime.fromisoformat(r["zeit"]) < ende]
     if not zeilen:
         print(f"Keine Beitraege zwischen {start:%Y-%m-%d %H:%M} und {ende:%Y-%m-%d %H:%M}.")
         return None
     datei = cfg["pfade"]["zusammenfassungen"] / f"{start.date().isoformat()}.md"
-    if not erzwingen and datei.exists():
+    if not erzwingen and datei.exists() and (zwischenstand or not ist_zwischenstand(datei)):
         geschrieben = dt.datetime.fromtimestamp(datei.stat().st_mtime, dt.timezone.utc)
         if all(dt.datetime.fromisoformat(r["abgeholt"]) <= geschrieben for r in zeilen):
             print(f"{datei.name} ist aktuell, keine neuen Beiträge für den Tag.")
@@ -238,11 +256,13 @@ def zusammenfassen(tag=None, mit_digest=True, erzwingen=False):
     ordner = cfg["pfade"]["zusammenfassungen"]
     ordner.mkdir(parents=True, exist_ok=True)
     datei = ordner / f"{start.date().isoformat()}.md"
+    kopf = f"Zwischenstand bis {ende:%H:%M} Uhr: " if zwischenstand else ""
     datei.write_text(
         f"# CheckMates {start.date().isoformat()}\n\n"
-        f"{len(zeilen)} Beiträge in {len(themen)} Themen, "
+        f"{kopf}{len(zeilen)} Beiträge in {len(themen)} Themen, "
         f"{start:%d.%m. %H:%M} bis {ende:%d.%m. %H:%M}\n\n"
-        f"{text.strip()}\n", encoding="utf-8")
+        + (f"{ZWISCHENSTAND}\n\n" if zwischenstand else "")
+        + f"{text.strip()}\n", encoding="utf-8")
     print(f"Zusammenfassung: {datei}")
     if mit_digest:
         digest_bauen(cfg)
@@ -286,7 +306,9 @@ def perioden():
     """
     cfg = config()
     ordner = cfg["pfade"]["zusammenfassungen"]
-    tage = sorted(dt.date.fromisoformat(p.stem) for p in ordner.glob("????-??-??.md"))
+    # Zwischenstände zählen erst mit, wenn der Tag endgültig zusammengefasst ist
+    tage = sorted(dt.date.fromisoformat(p.stem) for p in ordner.glob("????-??-??.md")
+                  if not ist_zwischenstand(p))
     gruppen = {}
     for t in tage:
         jahr, kw, _ = t.isocalendar()
@@ -328,7 +350,8 @@ def nachholen(von):
     abholen(dt.datetime.combine(start, dt.time()).astimezone() - dt.timedelta(hours=1))
     tag = start
     while tag < dt.date.today():
-        if not (pfad("zusammenfassungen") / f"{tag.isoformat()}.md").exists():
+        datei = pfad("zusammenfassungen") / f"{tag.isoformat()}.md"
+        if not datei.exists() or ist_zwischenstand(datei):
             # zusammenfassen(X) fasst den Tag vor X zusammen
             zusammenfassen((tag + dt.timedelta(days=1)).isoformat(), mit_digest=False)
         tag += dt.timedelta(days=1)
@@ -362,19 +385,29 @@ def llm(cfg, system, prompt):
 
 
 def dienst():
-    """Dauerbetrieb fuer den Container: taeglich zur eingestellten Uhrzeit `lauf`."""
+    """Dauerbetrieb fuer den Container: `lauf` um CMK_UHRZEIT, `zwischenstand` um CMK_ZWISCHENSTAND."""
     while True:
-        std, minute = map(int, config()["uhrzeit"].split(":"))
+        cfg = config()
+        plan = [(cfg["uhrzeit"], lauf)] + [(u, zwischenstand) for u in cfg["zwischenstand"]]
         jetzt = dt.datetime.now()
-        naechster = jetzt.replace(hour=std, minute=minute, second=0, microsecond=0)
-        if naechster <= jetzt:
-            naechster += dt.timedelta(days=1)
-        print(f"Nächster Lauf: {naechster:%Y-%m-%d %H:%M}", flush=True)
+        termine = []
+        for uhrzeit, aufgabe in plan:
+            std, minute = map(int, uhrzeit.split(":"))
+            t = jetzt.replace(hour=std, minute=minute, second=0, microsecond=0)
+            termine.append((t if t > jetzt else t + dt.timedelta(days=1), aufgabe))
+        naechster, aufgabe = min(termine, key=lambda x: x[0])
+        print(f"Nächster Termin: {naechster:%Y-%m-%d %H:%M} {aufgabe.__name__}", flush=True)
         time.sleep((naechster - jetzt).total_seconds())
         try:
-            lauf()
+            aufgabe()
         except Exception as fehler:  # Dienst soll weiterlaufen, Fehler steht im Log
-            print(f"Lauf fehlgeschlagen: {fehler!r}", flush=True)
+            print(f"{aufgabe.__name__} fehlgeschlagen: {fehler!r}", flush=True)
+
+
+def zwischenstand():
+    abholen()
+    zusammenfassen(mit_digest=False, zwischenstand=True)
+    digest_bauen(config())
 
 
 def teams_push(schluessel, erzwingen=False, trocken=False):
@@ -452,6 +485,8 @@ def main():
         zusammenfassen(tag, erzwingen="--neu" in sys.argv)
     elif befehl == "lauf":
         lauf()
+    elif befehl == "zwischenstand":
+        zwischenstand()
     elif befehl == "dienst":
         dienst()
     elif befehl == "perioden":

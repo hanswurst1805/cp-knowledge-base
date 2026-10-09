@@ -167,7 +167,7 @@ def detailseiten(eintraege, ziel, anzeige, label):
     daten = []
     (ziel / "md").mkdir(exist_ok=True)
     for i, (key, md) in enumerate(eintraege):
-        (ziel / "md" / f"{key}.md").write_text(re.sub(r"<!-- tage: .*? -->\n\n", "", md), encoding="utf-8")
+        (ziel / "md" / f"{key}.md").write_text(re.sub(r"<!-- (tage: .*?|zwischenstand) -->\n\n", "", md), encoding="utf-8")
         meta, abschnitte = zerlegen(md)
         name = anzeige(key, md)
         vor = eintraege[i - 1][0] if i > 0 else None
