@@ -3,7 +3,7 @@
 
     python3 checkmates.py lauf          abholen + zusammenfassen (taeglicher Job)
     python3 checkmates.py abholen       nur neue Beitraege speichern
-    python3 checkmates.py zusammenfassen [JJJJ-MM-TT]
+    python3 checkmates.py zusammenfassen [JJJJ-MM-TT] [--neu]   --neu erzwingt Neuerstellung
     python3 checkmates.py nachholen JJJJ-MM-TT   ab Datum abholen, fehlende Tage zusammenfassen
     python3 checkmates.py perioden      Wochen-/Monatszusammenfassungen aktualisieren
     python3 checkmates.py digest        HTML-Seiten aus allen Zusammenfassungen neu bauen
@@ -197,7 +197,7 @@ Beiträge:
 {beitraege}"""
 
 
-def zusammenfassen(tag=None, mit_digest=True):
+def zusammenfassen(tag=None, mit_digest=True, erzwingen=False):
     cfg = config()
     con = db()
     tag = tag or dt.date.today().isoformat()
@@ -208,6 +208,12 @@ def zusammenfassen(tag=None, mit_digest=True):
     if not zeilen:
         print(f"Keine Beitraege zwischen {start:%Y-%m-%d %H:%M} und {ende:%Y-%m-%d %H:%M}.")
         return None
+    datei = cfg["pfade"]["zusammenfassungen"] / f"{start.date().isoformat()}.md"
+    if not erzwingen and datei.exists():
+        geschrieben = dt.datetime.fromtimestamp(datei.stat().st_mtime, dt.timezone.utc)
+        if all(dt.datetime.fromisoformat(r["abgeholt"]) <= geschrieben for r in zeilen):
+            print(f"{datei.name} ist aktuell, keine neuen Beiträge für den Tag.")
+            return datei
 
     namen = {b["id"]: b["title"] for b in bereichsliste()}
     themen = {}
@@ -442,7 +448,8 @@ def main():
     if befehl == "abholen":
         abholen()
     elif befehl == "zusammenfassen":
-        zusammenfassen(sys.argv[2] if len(sys.argv) > 2 else None)
+        tag = next((a for a in sys.argv[2:] if not a.startswith("--")), None)
+        zusammenfassen(tag, erzwingen="--neu" in sys.argv)
     elif befehl == "lauf":
         lauf()
     elif befehl == "dienst":
